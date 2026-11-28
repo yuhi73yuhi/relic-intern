@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { decodeBlob, startRecording, type RecorderHandle } from "@/lib/audio";
+import type { Quality } from "@/lib/quality";
 
 type Props = {
   role: "pro" | "user";
@@ -13,9 +14,10 @@ type Props = {
   onLoad: (buf: AudioBuffer, name: string) => void;
   onPlay: () => void;
   playing: boolean;
+  quality: Quality | null;
 };
 
-export default function SourceSlot({ role, title, subtitle, color, buffer, name, onLoad, onPlay, playing }: Props) {
+export default function SourceSlot({ role, title, subtitle, color, buffer, name, onLoad, onPlay, playing, quality }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<RecorderHandle | null>(null);
   const [drag, setDrag] = useState(false);
@@ -160,6 +162,23 @@ export default function SourceSlot({ role, title, subtitle, color, buffer, name,
           {playing ? "■ 停止" : "▶ 再生"}
         </button>
       </div>
+      {quality && (
+        <div className="flex items-start gap-2 rounded-md border border-zinc-800 bg-zinc-950/50 px-2.5 py-1.5 text-[11px]">
+          <span
+            className="mt-px shrink-0 rounded px-1.5 font-semibold"
+            style={{
+              color: quality.level === "good" ? "#10b981" : quality.level === "warning" ? "#f59e0b" : "#f43f5e",
+              background: quality.level === "good" ? "#10b98118" : quality.level === "warning" ? "#f59e0b18" : "#f43f5e18",
+            }}
+          >
+            録音品質 {quality.level === "good" ? "良好" : quality.level === "warning" ? "注意" : "要再録音"}
+          </span>
+          <span className="text-zinc-400">
+            {quality.messages[0]}
+            <span className="ml-1 font-mono text-zinc-600">SNR {quality.snrDb.toFixed(0)}dB</span>
+          </span>
+        </div>
+      )}
       {error && <p className="text-[11px] text-rose-400">{error}</p>}
     </div>
   );

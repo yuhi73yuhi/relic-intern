@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GrooveResult, NotePair } from "@/lib/groove";
 import { toMono } from "@/lib/groove";
-import { COLORS, SEVERITY_COLOR, fmtMs, severityOf } from "@/lib/theme";
+import { COLORS, SEVERITY_COLOR, fmtMs } from "@/lib/theme";
 
 type Props = {
   proBuf: AudioBuffer | null;
@@ -11,6 +11,9 @@ type Props = {
   result: GrooveResult | null;
   /** Pro 時間軸での再生位置（秒） */
   playhead: number | null;
+  selected: number | null;
+  onSelect: (index: number) => void;
+  tightMs: number;
 };
 
 const RULER = 22;
@@ -41,7 +44,7 @@ function computePeaks(data: Float32Array, sr: number, t0: number, secPerPx: numb
   return { mins, maxs };
 }
 
-export default function WaveformView({ proBuf, userBuf, result, playhead }: Props) {
+export default function WaveformView({ proBuf, userBuf, result, playhead, selected, onSelect, tightMs }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [width, setWidth] = useState(800);
@@ -178,6 +181,18 @@ export default function WaveformView({ proBuf, userBuf, result, playhead }: Prop
       g.setLineDash([]);
       g.globalAlpha = 1;
 
+      // 選択中のノート
+      if (selected !== null && result.pairs[selected]) {
+        const sp = result.pairs[selected];
+        const a = Math.min(xOf(sp.proTime), xOf(sp.userTime - offset)) - 6;
+        const b = Math.max(xOf(sp.proTime), xOf(sp.userTime - offset)) + 6;
+        g.fillStyle = "rgba(255,255,255,0.07)";
+        g.fillRect(a, RULER, b - a, HEIGHT - RULER);
+        g.strokeStyle = "rgba(255,255,255,0.6)";
+        g.lineWidth = 1;
+        g.strokeRect(a + 0.5, RULER + 0.5, b - a - 1, HEIGHT - RULER - 1);
+      }
+
       // 対応線 + ズレ量ラベル（近接時は 2 段に振り分け）
       g.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
       g.textBaseline = "middle";
@@ -186,7 +201,7 @@ export default function WaveformView({ proBuf, userBuf, result, playhead }: Prop
       for (const p of result.pairs) {
         const xp = xOf(p.proTime);
         const xu = xOf(p.userTime - offset);
-        const sev = severityOf(p.devMs);
+        const sev = p.sev.timing ?? "good";
         const col = SEVERITY_COLOR[sev];
         g.strokeStyle = col;
         g.lineWidth = 1.5;
@@ -226,10 +241,10 @@ export default function WaveformView({ proBuf, userBuf, result, playhead }: Prop
 
     g.font = "600 11px ui-sans-serif, system-ui, sans-serif";
     g.textBaseline = "top";
-    tag("PRO  お手本", LANE_PRO_Y, COLORS.pro);
-    tag("USER  自分", LANE_USER_Y, COLORS.user);
+    tag("先生（お手本）", LANE_PRO_Y, COLORS.pro);
+    tag("あなた", LANE_USER_Y, COLORS.user);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proMono, userMono, result, canvasW, secPerPx, duration, offset]);
+  }, [proMono, userMono, result, canvasW, secPerPx, duration, offset, selected]);
 
   const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!result) return;
@@ -253,13 +268,13 @@ export default function WaveformView({ proBuf, userBuf, result, playhead }: Prop
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-4 text-xs text-zinc-400">
         <div className="flex items-center gap-4">
-          <LegendSwatch color={COLORS.pro} label="お手本（Pro）" />
-          <LegendSwatch color={COLORS.user} label="自分（User）" />
+          <LegendSwatch color={COLORS.pro} label="先生（お手本）" />
+          <LegendSwatch color={COLORS.user} label="あなた" />
           <span className="hidden items-center gap-3 md:flex">
             <span className="text-zinc-500">ズレ:</span>
-            <LegendSwatch color={COLORS.good} label="±10ms以内" line />
-            <LegendSwatch color={COLORS.warning} label="±25ms以内" line />
-            <LegendSwatch color={COLORS.critical} label="25ms超" line />
+            <LegendSwatch color={COLORS.good} label={`±${Math.round(tightMs * 1.1)}ms以内`} line />
+            <LegendSwatch color={COLORS.warning} label={`±${Math.round(tightMs * 2.5)}ms以内`} line />
+            <LegendSwatch color={COLORS.critical} label="それ以上" line />
           </span>
         </div>
         <label className="flex items-center gap-2">
@@ -277,7 +292,7 @@ export default function WaveformView({ proBuf, userBuf, result, playhead }: Prop
         </label>
       </div>
       <div ref={wrapRef} className="relative overflow-x-auto rounded-lg border border-zinc-800 bg-[#0b0f14]">
-        <div className="relative" style={{ width: canvasW, height: HEIGHT }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+        <div className="relative" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onClick={() => hover && onSelect(hover.pair.index)} style={{ width: canvasW, height: HEIGHT, cursor: hover ? "pointer" : "default" }}>
           <canvas ref={canvasRef} className="block" />
           {playhead !== null && (
             <div
@@ -293,12 +308,13 @@ export default function WaveformView({ proBuf, userBuf, result, playhead }: Prop
                 style={{ left: Math.min(Math.max(hover.x + 10, 4), canvasW - 184), top: BAND_Y - 4 }}
               >
                 <div className="mb-1 font-semibold text-zinc-100">
-                  #{hover.pair.index + 1}　{hover.pair.bar}小節 {hover.pair.beat}拍{hover.pair.offbeat ? "裏" : ""}
+                  #{hover.pair.index + 1}　{hover.pair.posLabel}
                 </div>
-                <Row k="ズレ" v={fmtMs(hover.pair.devMs)} color={SEVERITY_COLOR[severityOf(hover.pair.devMs)]} />
-                <Row k="Pro" v={`${hover.pair.proTime.toFixed(3)}s`} />
-                <Row k="User" v={`${(hover.pair.userTime - offset).toFixed(3)}s`} />
-                <Row k="判定" v={hover.pair.devMs < -5 ? "前ノリ（早い）" : hover.pair.devMs > 5 ? "後ノリ（遅い）" : "ジャスト"} />
+                <Row k="ズレ" v={fmtMs(hover.pair.devMs)} color={SEVERITY_COLOR[hover.pair.sev.timing ?? "good"]} />
+                <Row k="先生" v={`${hover.pair.proTime.toFixed(3)}s`} />
+                <Row k="あなた" v={`${(hover.pair.userTime - offset).toFixed(3)}s`} />
+                <Row k="メトロノーム比" v={fmtMs(hover.pair.gridDevUserMs)} />
+                <div className="mt-1 text-[10px] text-zinc-500">クリックでニュアンス詳細</div>
               </div>
             </>
           )}
